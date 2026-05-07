@@ -2,12 +2,15 @@ package external
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"net/http/cookiejar"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/gocolly/colly/v2"
 )
 
 const (
@@ -16,125 +19,88 @@ const (
 	sotetsuMyPageURL    = "https://mypage.sotetsu-point.jp/PISM020_00"
 )
 
-type SotetsuClient struct {
-	jar *cookiejar.Jar
-}
-
+type SotetsuClient struct{ client *http.Client }
 type SotetsuData struct {
 	Name        string
 	Point       int
-	PointExpiry string
 	Mile        int
-	MileExpiry  string
 	Rank        string
+	PointExpiry string
+	MileExpiry  string
 }
 
 func NewSotetsuClient() (*SotetsuClient, error) {
-	jar, err := cookiejar.New(nil)
+	jar, _ := cookiejar.New(nil)
+	return &SotetsuClient{client: &http.Client{Jar: jar}}, nil
+}
+
+// Login は標準のhttpリクエストで認証を行う
+func (s *SotetsuClient) Login(userId, password string) error {
+	// 1. ログインページからトークン取得
+	resp, err := s.client.Get(sotetsuLoginPageURL)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return &SotetsuClient{jar: jar}, nil
-}
+	defer resp.Body.Close()
 
-func (s *SotetsuClient) newCollector() *colly.Collector {
-	c := colly.NewCollector(
-		colly.AllowURLRevisit(),
-		colly.UserAgent(userAgent),
-	)
-	c.SetCookieJar(s.jar)
-	return c
-}
+	doc, _ := goquery.NewDocumentFromReader(resp.Body)
+	token, _ := doc.Find("input[name='jp.hitachisoft.message.TOKEN']").Attr("value")
 
-// Login はログインページからCSRFトークンを取得し、認証する
-func (s *SotetsuClient) Login(email, password string) error {
-	c := s.newCollector()
-	var loginErr error
-	loggedIn := false
-	posted := false // 無限ループ防止: ログインPOSTは1回のみ
-
-	c.OnHTML("form#PISM010", func(e *colly.HTMLElement) {
-		if posted {
-			return
-		}
-		posted = true
-		token := e.ChildAttr("input[name='jp.hitachisoft.message.TOKEN']", "value")
-		if err := e.Request.Post(sotetsuLoginPostURL, map[string]string{
-			"userId":                       email,
-			"passWord":                     password,
-			"jp.hitachisoft.message.TOKEN": token,
-		}); err != nil {
-			loginErr = fmt.Errorf("POSTリクエスト失敗: %w", err)
-		}
+	// 2. ログインPOST
+	postResp, err := s.client.PostForm(sotetsuLoginPostURL, url.Values{
+		"userId":                       {userId},
+		"passWord":                     {password},
+		"jp.hitachisoft.message.TOKEN": {token},
 	})
-
-	// ログイン成功判定: PISM020_00 (マイページ) へ遷移したか
-	c.OnResponse(func(r *colly.Response) {
-		if strings.Contains(r.Request.URL.String(), "PISM020") {
-			loggedIn = true
-		}
-	})
-
-	c.OnError(func(r *colly.Response, err error) {
-		loginErr = err
-	})
-
-	if err := c.Visit(sotetsuLoginPageURL); err != nil {
-		return fmt.Errorf("ログインページアクセス失敗: %w", err)
+	if err != nil {
+		return err
 	}
-	if loginErr != nil {
-		return loginErr
-	}
-	if !loggedIn {
-		return fmt.Errorf("ログイン失敗: 認証情報を確認してください")
+	defer postResp.Body.Close()
+
+	// 成功判定（マイページ PISM020 にリダイレクトされたか）
+	if !strings.Contains(postResp.Request.URL.String(), "PISM020") {
+		return fmt.Errorf("ログイン失敗")
 	}
 	return nil
 }
 
-// FetchAll はマイページから全データを取得する
+// FetchAll はマイページからデータを取得する
 func (s *SotetsuClient) FetchAll() (*SotetsuData, error) {
-	c := s.newCollector()
+	resp, err := s.client.Get(sotetsuMyPageURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	_ = os.WriteFile("sotetsu_debug.html", body, 0644)
+	fmt.Printf("Sotetsu MyPage HTML dumped (%d bytes)\n", len(body))
+
+	doc, _ := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
 	data := &SotetsuData{}
-	var fetchErr error
 
-	c.OnHTML("main.container", func(e *colly.HTMLElement) {
-		// 会員名: "菊池　裕夢 様" → " 様" を除去
-		nameRaw := strings.TrimSpace(e.DOM.Find("h1.parts-title03").Text())
-		data.Name = strings.TrimSpace(strings.TrimSuffix(nameRaw, "様"))
+	// 名前
+	data.Name = strings.TrimSpace(strings.TrimSuffix(doc.Find("h1.parts-title03").Text(), " 様"))
 
-		// ポイント (color-blue の最初の要素)
-		pointStr := strings.TrimSpace(e.DOM.Find(".mypage-status__situation__txt.color-blue").First().Text())
-		data.Point, _ = strconv.Atoi(strings.ReplaceAll(pointStr, ",", ""))
+	// 各ステータス（ポイント、マイル、ランク）の抽出
+	doc.Find(".mypage-status__whbord").Each(func(i int, s *goquery.Selection) {
+		title := strings.TrimSpace(s.Find("h2").First().Text())
+		valText := strings.TrimSpace(s.Find(".mypage-status__situation__txt").Text())
+		expiry := strings.TrimSpace(s.Find("span:contains('有効期限')").NextAll().Text())
 
-		// マイル (color-aqua)
-		mileStr := strings.TrimSpace(e.DOM.Find(".mypage-status__situation__txt.color-aqua").First().Text())
-		data.Mile, _ = strconv.Atoi(strings.ReplaceAll(mileStr, ",", ""))
-
-		// ローゼンランク (color-blue の最後の要素)
-		data.Rank = strings.TrimSpace(e.DOM.Find(".mypage-status__situation__txt.color-blue").Last().Text())
-
-		// 有効期限: strong.color-blue の 1つ目=ポイント、2つ目=マイル
-		e.DOM.Find("strong.color-blue").Each(func(i int, sel *goquery.Selection) {
-			expiry := strings.TrimSpace(sel.Text())
-			expiry = strings.ReplaceAll(expiry, "\u00a0", "") // &nbsp; 除去
-			switch i {
-			case 0:
-				data.PointExpiry = expiry
-			case 1:
-				data.MileExpiry = expiry
-			}
-		})
+		switch {
+		case strings.Contains(title, "ポイント"):
+			v, _ := strconv.Atoi(strings.ReplaceAll(valText, ",", ""))
+			data.Point = v
+			data.PointExpiry = expiry
+		case strings.Contains(title, "マイル"):
+			v, _ := strconv.Atoi(strings.ReplaceAll(valText, ",", ""))
+			data.Mile = v
+			data.MileExpiry = expiry
+		case strings.Contains(title, "ランク"):
+			data.Rank = valText
+		}
 	})
 
-	c.OnError(func(r *colly.Response, err error) {
-		fetchErr = err
-	})
-
-	if err := c.Visit(sotetsuMyPageURL); err != nil {
-		return nil, fmt.Errorf("マイページアクセス失敗: %w", err)
-	}
-	if fetchErr != nil {
-		return nil, fetchErr
-	}
 	return data, nil
 }
