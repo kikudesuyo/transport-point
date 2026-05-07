@@ -15,19 +15,19 @@ func main() {
 		log.Fatal(".envの読み込みに失敗:", err)
 	}
 
-	email := os.Getenv("SOTETSU_EMAIL")
-	password := os.Getenv("SOTETSU_PASSWORD")
-	if email == "" || password == "" {
-		log.Fatal("SOTETSU_EMAIL / SOTETSU_PASSWORD が未設定です")
+	loginID := os.Getenv("KEIKYU_LOGIN_ID")
+	password := os.Getenv("KEIKYU_PASSWORD")
+	if loginID == "" || password == "" {
+		log.Fatal("KEIKYU_LOGIN_ID / KEIKYU_PASSWORD が未設定です")
 	}
 
-	client, err := external.NewSotetsuClient()
+	client, err := external.NewKeikyuClient()
 	if err != nil {
 		log.Fatal("クライアント初期化失敗:", err)
 	}
 
 	fmt.Println("ログイン中...")
-	if err := client.Login(email, password); err != nil {
+	if err := client.Login(loginID, password); err != nil {
 		log.Fatal("ログイン失敗:", err)
 	}
 	fmt.Println("✅ ログイン成功")
@@ -40,11 +40,9 @@ func main() {
 
 	fmt.Printf("\n── 会員情報 ──────────────────────\n")
 	fmt.Printf("名前          : %s\n", data.Name)
-	fmt.Printf("ランク        : %s\n", data.Rank)
+	fmt.Printf("会員No        : %s\n", data.MemberNo)
 	fmt.Printf("\n── ポイント ──────────────────────\n")
-	fmt.Printf("保有ポイント  : %d pt\n", data.Point)
-	fmt.Printf("有効期限      : %s\n", data.PointExpiry)
-	fmt.Printf("\n── マイル ────────────────────────\n")
-	fmt.Printf("保有マイル    : %d mile\n", data.Mile)
-	fmt.Printf("有効期限      : %s\n", data.MileExpiry)
+	fmt.Printf("利用可能ポイント: %d pt\n", data.AvailablePoint)
+	fmt.Printf("期間限定ポイント: %d pt\n", data.LimitedPoint)
+	fmt.Printf("失効情報        : %s\n", data.RevocationInfo)
 }
