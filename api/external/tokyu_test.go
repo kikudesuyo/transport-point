@@ -1,30 +1,43 @@
 package external
 
 import (
+	"encoding/json"
+	"io"
 	"os"
 	"testing"
-
-	"github.com/joho/godotenv"
 )
 
-func TestTokyuClient_FetchAll_MinimalCookies(t *testing.T) {
-	// .env から認証情報を読み込み
-	_ = godotenv.Load("../.env")
-	token := os.Getenv("TOKYU_SESSION_TOKEN")
-	if token == "" {
-		t.Skip("TOKYU_SESSION_TOKEN が設定されていないためスキップします")
+func loadTestCookies() map[string]string {
+	f, err := os.Open("../tokyu_cookie.json")
+	if err != nil {
+		return nil
 	}
+	defer f.Close()
+	data, _ := io.ReadAll(f)
+	var cookies map[string]string
+	json.Unmarshal(data, &cookies)
+	return cookies
+}
 
-	client, _ := NewTokyuClient()
-	
-	// 最小限のセッショントークンのみをセット
-	cookies := map[string]string{
-		"__Host-plus.sessionToken": token,
-		"nToken":                   token,
-		"s.sessionToken":           token,
-		"onToken":                  token,
+func saveTestCookies(cookies map[string]string) {
+	data, _ := json.MarshalIndent(cookies, "", "  ")
+	os.WriteFile("../tokyu_cookie.json", data, 0644)
+}
+
+func TestTokyuClient_FetchAll_MinimalCookies(t *testing.T) {
+	client, err := NewTokyuClient()
+	if err != nil {
+		t.Errorf("NewTokyuClient failed: %v", err)
+		return
+	}
+	cookies := loadTestCookies()
+	if cookies == nil {
+		t.Skip("tokyu_cookie.json が見つからないためスキップします")
 	}
 	client.SetCookies(cookies)
+	defer func() {
+		saveTestCookies(client.GetCookies())
+	}()
 
 	data, err := client.FetchAll()
 	if err != nil {
@@ -34,29 +47,25 @@ func TestTokyuClient_FetchAll_MinimalCookies(t *testing.T) {
 	}
 }
 
-func TestTokyuClient_FetchAll_FullCookies(t *testing.T) {
-	_ = godotenv.Load("../.env")
-	token := os.Getenv("TOKYU_SESSION_TOKEN")
-	if token == "" {
-		t.Skip("TOKYU_SESSION_TOKEN が設定されていないためスキップします")
+func TestTokyuClient_FetchAll_FromJSON(t *testing.T) {
+	client, err := NewTokyuClient()
+	if err != nil {
+		t.Errorf("NewTokyuClient failed: %v", err)
+		return
 	}
-
-	client, _ := NewTokyuClient()
-	
-	// すべての環境変数からクッキーを構成（後でサービス層のロジックに合わせる）
-	cookies := map[string]string{
-		"__Host-plus.sessionToken": token,
-		"nToken":                   token,
-		"_clck":                    os.Getenv("TOKYU_CLCK"),
-		"_clsk":                    os.Getenv("TOKYU_CLSK"),
-		"_ga":                      os.Getenv("TOKYU_GA"),
+	cookies := loadTestCookies()
+	if cookies == nil {
+		t.Skip("tokyu_cookie.json が見つからないためスキップします")
 	}
 	client.SetCookies(cookies)
+	defer func() {
+		saveTestCookies(client.GetCookies())
+	}()
 
 	data, err := client.FetchAll()
 	if err != nil {
-		t.Errorf("Full cookies fetch failed: %v", err)
+		t.Errorf("Fetch from JSON failed: %v", err)
 	} else {
-		t.Logf("Full cookies fetch success! Points: %d", data.Point)
+		t.Logf("Fetch from JSON success! Points: %d", data.Point)
 	}
 }

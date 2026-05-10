@@ -84,7 +84,7 @@ func (t *TokyuClient) SetCookies(cookies map[string]string) {
 		}
 
 		// ドメインの振り分け
-		if strings.HasPrefix(name, "_ga") || name == "_clck" || name == "_clsk" || name == "_gcl_au" || name == "_fbp" {
+		if strings.HasPrefix(name, "_ga") || name == "_clck" || name == "_gcl_au" || name == "_fbp" {
 			c.Domain = ".tokyu.co.jp"
 			dotCookies = append(dotCookies, c)
 		} else {
@@ -131,6 +131,14 @@ func (t *TokyuClient) setHeaders(req *http.Request) {
 
 func (t *TokyuClient) FetchAll() (*TokyuData, error) {
 	data := &TokyuData{}
+
+	// トップページに一度アクセスして Cookie を更新する（GA やセッションの延命）
+	rootReq, _ := http.NewRequest("GET", tokyuRootURL, nil)
+	t.setHeaders(rootReq)
+	rootResp, err := t.client.Do(rootReq)
+	if err == nil {
+		rootResp.Body.Close()
+	}
 
 	req, _ := http.NewRequest("GET", tokyuDetailURL, nil)
 	t.setHeaders(req)

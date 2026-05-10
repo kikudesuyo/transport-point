@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const tokyuCookieFile = "tokyu_session.json"
+const tokyuCookieFile = "tokyu_cookie.json"
 
 type ExpiryInfo struct {
 	Points int    `json:"points"`
@@ -70,21 +70,18 @@ func (s *PointService) FetchAll() (*PointReport, error) {
 }
 
 func (s *PointService) fetchTokyu(report *PointReport) {
-	token := os.Getenv("TOKYU_SESSION_TOKEN")
-
 	// Load existing cookies from file
 	cookies := s.loadTokyuCookies()
-
-	// Update session tokens if provided in environment
-	if token != "" {
-		cookies["__Host-plus.sessionToken"] = token
-	}
-
 	if len(cookies) == 0 {
 		return // No way to authenticate
 	}
-
 	s.tokyu.SetCookies(cookies)
+
+	// Ensure cookies are saved back to file regardless of fetch success/failure
+	defer func() {
+		updated := s.tokyu.GetCookies()
+		s.saveTokyuCookies(updated)
+	}()
 
 	data, err := s.tokyu.FetchAll()
 	if err != nil {
@@ -98,13 +95,6 @@ func (s *PointService) fetchTokyu(report *PointReport) {
 	}
 	s.finalizePoint(&up)
 	report.Details = append(report.Details, up)
-
-	// Save all current cookies back to file
-	updated := s.tokyu.GetCookies()
-	s.saveTokyuCookies(updated)
-
-	// Still check for session token change for .env sync if desired
-	s.syncTokyuCookies(report, updated)
 }
 
 func (s *PointService) fetchMetpo(report *PointReport) {
@@ -216,16 +206,6 @@ func (s *PointService) finalizePoint(up *UnifiedPoint) {
 		return up.ExpiryList[i].Date < up.ExpiryList[j].Date
 	})
 	up.ExpiryDate = up.ExpiryList[0].Date
-}
-
-func (s *PointService) syncTokyuCookies(report *PointReport, updated map[string]string) {
-	newToken := updated["__Host-plus.sessionToken"]
-	if newToken != "" && newToken != os.Getenv("TOKYU_SESSION_TOKEN") {
-		if report.UpdatedCookies == nil {
-			report.UpdatedCookies = make(map[string]string)
-		}
-		report.UpdatedCookies["TOKYU_SESSION_TOKEN"] = newToken
-	}
 }
 
 func (s *PointService) loadTokyuCookies() map[string]string {
