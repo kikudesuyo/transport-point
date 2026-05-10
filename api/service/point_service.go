@@ -2,7 +2,7 @@ package service
 
 import (
 	"fmt"
-	"hoge/external"
+	"github.com/kikudesuyo/point-hub/external"
 	"os"
 	"sort"
 	"strings"
@@ -18,12 +18,6 @@ type UnifiedPoint struct {
 	Balance    int          `json:"balance"`
 	ExpiryDate string       `json:"expiry_date"` // Nearest expiry date
 	ExpiryList []ExpiryInfo `json:"expiry_list,omitempty"`
-}
-
-type PointReport struct {
-	TotalBalance   int               `json:"total_balance"`
-	Details        []UnifiedPoint    `json:"details"`
-	UpdatedCookies map[string]string `json:"updated_cookies,omitempty"`
 }
 
 type PointService struct {
@@ -50,27 +44,10 @@ func NewPointService() (*PointService, error) {
 	}, nil
 }
 
-func (s *PointService) FetchAll() (*PointReport, error) {
-	report := &PointReport{Details: []UnifiedPoint{}}
-
-	// Each provider fetch logic
-	s.fetchTokyu(report)
-	s.fetchMetpo(report)
-	s.fetchToei(report)
-	s.fetchSotetsu(report)
-	s.fetchKeikyu(report)
-
-	for _, d := range report.Details {
-		report.TotalBalance += d.Balance
-	}
-	return report, nil
-}
-
-func (s *PointService) fetchTokyu(report *PointReport) {
+func (s *PointService) FetchTokyu() ([]UnifiedPoint, error) {
 	data, err := s.tokyu.FetchAll()
 	if err != nil {
-		fmt.Printf("Tokyu fetch error: %v\n", err)
-		return
+		return nil, fmt.Errorf("tokyu fetch error: %w", err)
 	}
 
 	up := UnifiedPoint{Provider: "Tokyu", Balance: data.Point}
@@ -78,101 +55,95 @@ func (s *PointService) fetchTokyu(report *PointReport) {
 		s.addExpiry(&up, exp.Balance, exp.Date)
 	}
 	s.finalizePoint(&up)
-	report.Details = append(report.Details, up)
+	return []UnifiedPoint{up}, nil
 }
 
-func (s *PointService) fetchMetpo(report *PointReport) {
+func (s *PointService) FetchMetpo() ([]UnifiedPoint, error) {
 	user, pass := os.Getenv("TOKYO_METRO_EMAIL"), os.Getenv("TOKYO_METRO_PASSWORD")
 	if user == "" || pass == "" {
-		return
+		return nil, fmt.Errorf("credentials not found")
 	}
 
 	if err := s.metpo.Login(user, pass); err != nil {
-		fmt.Printf("Metpo login error: %v\n", err)
-		return
+		return nil, fmt.Errorf("metpo login error: %w", err)
 	}
 
 	data, err := s.metpo.FetchAll()
 	if err != nil {
-		fmt.Printf("Metpo fetch error: %v\n", err)
-		return
+		return nil, fmt.Errorf("metpo fetch error: %w", err)
 	}
 
 	up := UnifiedPoint{Provider: "Tokyo Metro (Metpo)", Balance: data.Point.HoldingPoint}
 	s.addExpiry(&up, data.Point.NormalExpiryPoint, data.Point.NormalExpiry)
 	s.addExpiry(&up, data.Point.ChargeExpiryPoint, data.Point.ChargeExpiry)
 	s.finalizePoint(&up)
-	report.Details = append(report.Details, up)
+	return []UnifiedPoint{up}, nil
 }
 
-func (s *PointService) fetchToei(report *PointReport) {
+func (s *PointService) FetchToei() ([]UnifiedPoint, error) {
 	user, pass := os.Getenv("TOEI_USER_ID"), os.Getenv("TOEI_METRO_PASSWORD")
 	if user == "" || pass == "" {
-		return
+		return nil, fmt.Errorf("credentials not found")
 	}
 
 	if err := s.toei.Login(user, pass); err != nil {
-		fmt.Printf("Toei login error: %v\n", err)
-		return
+		return nil, fmt.Errorf("toei login error: %w", err)
 	}
 
 	data, err := s.toei.FetchAll()
 	if err != nil {
-		fmt.Printf("Toei fetch error: %v\n", err)
-		return
+		return nil, fmt.Errorf("toei fetch error: %w", err)
 	}
 
-	report.Details = append(report.Details, UnifiedPoint{Provider: "Toei Metro (Tokopo)", Balance: data.Point})
+	return []UnifiedPoint{{Provider: "Toei Metro (Tokopo)", Balance: data.Point}}, nil
 }
 
-func (s *PointService) fetchSotetsu(report *PointReport) {
+func (s *PointService) FetchSotetsu() ([]UnifiedPoint, error) {
 	user, pass := os.Getenv("SOTETSU_EMAIL"), os.Getenv("SOTETSU_PASSWORD")
 	if user == "" || pass == "" {
-		return
+		return nil, fmt.Errorf("credentials not found")
 	}
 
 	if err := s.sotetsu.Login(user, pass); err != nil {
-		fmt.Printf("Sotetsu login error: %v\n", err)
-		return
+		return nil, fmt.Errorf("sotetsu login error: %w", err)
 	}
 
 	data, err := s.sotetsu.FetchAll()
 	if err != nil {
-		fmt.Printf("Sotetsu fetch error: %v\n", err)
-		return
+		return nil, fmt.Errorf("sotetsu fetch error: %w", err)
 	}
 
-	report.Details = append(report.Details, UnifiedPoint{
+	var results []UnifiedPoint
+	results = append(results, UnifiedPoint{
 		Provider: "Sotetsu", Balance: data.Point, ExpiryDate: data.PointExpiry,
 	})
 	if data.Mile > 0 {
-		report.Details = append(report.Details, UnifiedPoint{
+		results = append(results, UnifiedPoint{
 			Provider: "Sotetsu (Mile)", Balance: data.Mile, ExpiryDate: data.MileExpiry,
 		})
 	}
+	return results, nil
 }
 
-func (s *PointService) fetchKeikyu(report *PointReport) {
+func (s *PointService) FetchKeikyu() ([]UnifiedPoint, error) {
 	user, pass := os.Getenv("KEIKYU_LOGIN_ID"), os.Getenv("KEIKYU_PASSWORD")
 	if user == "" || pass == "" {
-		return
+		return nil, fmt.Errorf("credentials not found")
 	}
 
 	if err := s.keikyu.Login(user, pass); err != nil {
-		fmt.Printf("Keikyu login error: %v\n", err)
-		return
+		return nil, fmt.Errorf("keikyu login error: %w", err)
 	}
 
 	data, err := s.keikyu.FetchAll()
 	if err != nil {
-		fmt.Printf("Keikyu fetch error: %v\n", err)
-		return
+		return nil, fmt.Errorf("keikyu fetch error: %w", err)
 	}
 
-	report.Details = append(report.Details, UnifiedPoint{
+	return []UnifiedPoint{{
 		Provider: "Keikyu", Balance: data.AvailablePoint + data.LimitedPoint,
 		ExpiryDate: strings.TrimSpace(data.RevocationInfo),
-	})
+	}}, nil
 }
 
 // Helpers

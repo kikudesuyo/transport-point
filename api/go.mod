@@ -1,4 +1,4 @@
-module hoge
+module github.com/kikudesuyo/point-hub
 
 go 1.25.0
 
@@ -10,5 +10,6 @@ require (
 
 require (
 	github.com/andybalholm/cascadia v1.3.3 // indirect
+	github.com/go-chi/chi/v5 v5.2.5 // indirect
 	golang.org/x/text v0.36.0 // indirect
 )
