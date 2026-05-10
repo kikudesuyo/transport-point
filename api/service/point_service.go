@@ -1,15 +1,12 @@
 package service
 
 import (
-	"encoding/json"
 	"fmt"
 	"hoge/external"
 	"os"
 	"sort"
 	"strings"
 )
-
-const tokyuCookieFile = "tokyu_cookie.json"
 
 type ExpiryInfo struct {
 	Points int    `json:"points"`
@@ -70,19 +67,6 @@ func (s *PointService) FetchAll() (*PointReport, error) {
 }
 
 func (s *PointService) fetchTokyu(report *PointReport) {
-	// Load existing cookies from file
-	cookies := s.loadTokyuCookies()
-	if len(cookies) == 0 {
-		return // No way to authenticate
-	}
-	s.tokyu.SetCookies(cookies)
-
-	// Ensure cookies are saved back to file regardless of fetch success/failure
-	defer func() {
-		updated := s.tokyu.GetCookies()
-		s.saveTokyuCookies(updated)
-	}()
-
 	data, err := s.tokyu.FetchAll()
 	if err != nil {
 		fmt.Printf("Tokyu fetch error: %v\n", err)
@@ -206,18 +190,4 @@ func (s *PointService) finalizePoint(up *UnifiedPoint) {
 		return up.ExpiryList[i].Date < up.ExpiryList[j].Date
 	})
 	up.ExpiryDate = up.ExpiryList[0].Date
-}
-
-func (s *PointService) loadTokyuCookies() map[string]string {
-	cookies := make(map[string]string)
-	data, err := os.ReadFile(tokyuCookieFile)
-	if err == nil {
-		json.Unmarshal(data, &cookies)
-	}
-	return cookies
-}
-
-func (s *PointService) saveTokyuCookies(cookies map[string]string) {
-	data, _ := json.MarshalIndent(cookies, "", "  ")
-	os.WriteFile(tokyuCookieFile, data, 0644)
 }

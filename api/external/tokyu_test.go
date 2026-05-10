@@ -1,27 +1,13 @@
 package external
 
 import (
-	"encoding/json"
-	"io"
 	"os"
 	"testing"
 )
 
-func loadTestCookies() map[string]string {
-	f, err := os.Open("../tokyu_cookie.json")
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	data, _ := io.ReadAll(f)
-	var cookies map[string]string
-	json.Unmarshal(data, &cookies)
-	return cookies
-}
-
-func saveTestCookies(cookies map[string]string) {
-	data, _ := json.MarshalIndent(cookies, "", "  ")
-	os.WriteFile("../tokyu_cookie.json", data, 0644)
+func init() {
+	// 実行ディレクトリを api/ に変更して、tokyu_cookie.json を正しく読み書きできるようにする
+	os.Chdir("..")
 }
 
 func TestTokyuClient_FetchAll_MinimalCookies(t *testing.T) {
@@ -30,14 +16,6 @@ func TestTokyuClient_FetchAll_MinimalCookies(t *testing.T) {
 		t.Errorf("NewTokyuClient failed: %v", err)
 		return
 	}
-	cookies := loadTestCookies()
-	if cookies == nil {
-		t.Skip("tokyu_cookie.json が見つからないためスキップします")
-	}
-	client.SetCookies(cookies)
-	defer func() {
-		saveTestCookies(client.GetCookies())
-	}()
 
 	data, err := client.FetchAll()
 	if err != nil {
@@ -53,14 +31,6 @@ func TestTokyuClient_FetchAll_FromJSON(t *testing.T) {
 		t.Errorf("NewTokyuClient failed: %v", err)
 		return
 	}
-	cookies := loadTestCookies()
-	if cookies == nil {
-		t.Skip("tokyu_cookie.json が見つからないためスキップします")
-	}
-	client.SetCookies(cookies)
-	defer func() {
-		saveTestCookies(client.GetCookies())
-	}()
 
 	data, err := client.FetchAll()
 	if err != nil {

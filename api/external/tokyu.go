@@ -7,13 +7,15 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 )
 
 const (
-	tokyuRootURL   = "https://plus.tokyu.co.jp/"
-	tokyuDetailURL = "https://plus.tokyu.co.jp/my/point/detail"
+	tokyuRootURL    = "https://plus.tokyu.co.jp/"
+	tokyuDetailURL  = "https://plus.tokyu.co.jp/my/point/detail"
+	tokyuCookieFile = "tokyu_cookie.json"
 )
 
 type TokyuClient struct {
@@ -54,9 +56,26 @@ type TokyuRSCPayload struct {
 
 func NewTokyuClient() (*TokyuClient, error) {
 	jar, _ := cookiejar.New(nil)
-	return &TokyuClient{
+	t := &TokyuClient{
 		client: &http.Client{Jar: jar},
-	}, nil
+	}
+	t.loadCookies()
+	return t, nil
+}
+
+func (t *TokyuClient) loadCookies() {
+	cookies := make(map[string]string)
+	data, err := os.ReadFile(tokyuCookieFile)
+	if err == nil {
+		json.Unmarshal(data, &cookies)
+		t.SetCookies(cookies)
+	}
+}
+
+func (t *TokyuClient) saveCookies() {
+	cookies := t.GetCookies()
+	data, _ := json.MarshalIndent(cookies, "", "  ")
+	os.WriteFile(tokyuCookieFile, data, 0644)
 }
 
 // SetCookies は提供された全ての認証Cookieをセットする
@@ -130,6 +149,7 @@ func (t *TokyuClient) setHeaders(req *http.Request) {
 }
 
 func (t *TokyuClient) FetchAll() (*TokyuData, error) {
+	defer t.saveCookies()
 	data := &TokyuData{}
 
 	// トップページに一度アクセスして Cookie を更新する（GA やセッションの延命）
