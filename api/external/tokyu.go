@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 )
@@ -98,6 +97,24 @@ func (t *TokyuClient) SetCookies(cookies map[string]string) {
 	t.client.Jar.SetCookies(uDot, dotCookies)
 }
 
+// GetCookies は現在のメモリ上のクッキーをマップ形式で返す
+func (t *TokyuClient) GetCookies() map[string]string {
+	uPlus, _ := url.Parse("https://plus.tokyu.co.jp")
+	uDot, _ := url.Parse("https://tokyu.co.jp")
+
+	cookies := make(map[string]string)
+
+	// 両方のドメインのクッキーを統合
+	for _, c := range t.client.Jar.Cookies(uPlus) {
+		cookies[c.Name] = c.Value
+	}
+	for _, c := range t.client.Jar.Cookies(uDot) {
+		cookies[c.Name] = c.Value
+	}
+
+	return cookies
+}
+
 func (t *TokyuClient) setHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
@@ -126,8 +143,6 @@ func (t *TokyuClient) FetchAll() (*TokyuData, error) {
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	// デバッグ用に保存
-	os.WriteFile("tokyu_detail.html", body, 0644)
 
 	// ログイン確認（HTML内を確認）
 	if !strings.Contains(string(body), "ログアウト") {
@@ -144,7 +159,7 @@ func (t *TokyuClient) FetchAll() (*TokyuData, error) {
 
 	// 有効期限の処理
 	exp := payload.PointBalances.ExpirationDate
-	
+
 	// 3年分のデータを整理
 	items := []struct {
 		Balance int
@@ -160,7 +175,7 @@ func (t *TokyuClient) FetchAll() (*TokyuData, error) {
 		if idx := strings.Index(dateStr, "T"); idx != -1 {
 			dateStr = dateStr[:idx]
 		}
-		
+
 		data.Expiries = append(data.Expiries, ExpiryItem{
 			Balance: item.Balance,
 			Date:    dateStr,

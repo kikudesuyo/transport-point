@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"hoge/service"
 	"os"
-
-	"hoge/external"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -15,38 +15,76 @@ func main() {
 		log.Fatal(".envの読み込みに失敗:", err)
 	}
 
-	client, err := external.NewTokyuClient()
+	ps, err := service.NewPointService()
 	if err != nil {
-		log.Fatal("クライアント初期化失敗:", err)
+		log.Fatal("サービス初期化失敗:", err)
 	}
 
-	// 全盛りCookie
-	cookies := map[string]string{
-		"__Host-plus.sessionToken": os.Getenv("TOKYU_SESSION_TOKEN"),
-		"nToken":                   os.Getenv("TOKYU_SESSION_TOKEN"),
-		"s.sessionToken":           os.Getenv("TOKYU_SESSION_TOKEN"),
-		"onToken":                  os.Getenv("TOKYU_SESSION_TOKEN"),
-		"_clck":                    os.Getenv("TOKYU_CLCK"),
-		"_clsk":                    os.Getenv("TOKYU_CLSK"),
-		"_ga":                      os.Getenv("TOKYU_GA"),
-		"_ga_B0V3646TYC":           os.Getenv("TOKYU_GA_B0"),
-		"_ga_XD2N3Y0135":           os.Getenv("TOKYU_GA_XD"),
-		"_ga_Y86R0E9JVH":           os.Getenv("TOKYU_GA_Y8"),
-		"_gcl_au":                  os.Getenv("TOKYU_GCL_AU"),
-		"_rslgvry":                 os.Getenv("TOKYU_RSLGVRY"),
-		"_yjsu_yjad":               os.Getenv("TOKYU_YJSU"),
-		"krt_rewrite_uid":          os.Getenv("TOKYU_KRT"),
-		"withdesk-id":              os.Getenv("TOKYU_WITHDESK"),
-	}
-
-	client.SetCookies(cookies)
-
-	fmt.Println("東急トップページにアクセス中...")
-	data, err := client.FetchAll()
+	fmt.Println("各社ポイント収集中...")
+	report, err := ps.FetchAll()
 	if err != nil {
-		log.Fatal("アクセス失敗:", err)
+		log.Fatal("データ取得失敗:", err)
 	}
 
-	fmt.Println("✅ ログイン成功！")
-	fmt.Printf("取得データ: %+v\n", data)
+	fmt.Println("\n========================================")
+	fmt.Printf("合計ポイント: %d pt\n", report.TotalBalance)
+	fmt.Println("========================================")
+
+	for _, d := range report.Details {
+		fmt.Printf("- %-20s: %6d pt", d.Provider, d.Balance)
+		if d.ExpiryDate != "" {
+			fmt.Printf(" (最短失効: %s)", d.ExpiryDate)
+		}
+		fmt.Println()
+		
+		for _, exp := range d.ExpiryList {
+			fmt.Printf("    └ %s: %d pt\n", exp.Date, exp.Points)
+		}
+	}
+	fmt.Println("========================================\n")
+
+	// セッション情報の自動更新
+	if len(report.UpdatedCookies) > 0 {
+		fmt.Println("セッション更新を検知しました。 .env を更新します...")
+		if err := updateEnvFile(".env", report.UpdatedCookies); err != nil {
+			fmt.Printf("⚠️ .envの更新に失敗: %v\n", err)
+		} else {
+			fmt.Println("✅ .envを最新のセッション情報で更新しました")
+		}
+	}
+}
+
+// updateEnvFile は指定されたファイルの環境変数を書き換える
+func updateEnvFile(filename string, updates map[string]string) error {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	changed := false
+
+	for i, line := range lines {
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		if newVal, ok := updates[key]; ok {
+			lines[i] = fmt.Sprintf("%s=%s", key, newVal)
+			delete(updates, key) // 処理済み
+			changed = true
+		}
+	}
+
+	// もしファイルになかった新規キーがあれば追記
+	for key, val := range updates {
+		lines = append(lines, fmt.Sprintf("%s=%s", key, val))
+		changed = true
+	}
+
+	if changed {
+		return os.WriteFile(filename, []byte(strings.Join(lines, "\n")), 0644)
+	}
+	return nil
 }

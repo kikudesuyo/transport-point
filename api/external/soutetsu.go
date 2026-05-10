@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 
@@ -73,9 +72,6 @@ func (s *SotetsuClient) FetchAll() (*SotetsuData, error) {
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	_ = os.WriteFile("sotetsu_debug.html", body, 0644)
-	fmt.Printf("Sotetsu MyPage HTML dumped (%d bytes)\n", len(body))
-
 	doc, _ := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
 	data := &SotetsuData{}
 
