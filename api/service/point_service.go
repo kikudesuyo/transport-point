@@ -1,12 +1,15 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"hoge/external"
 	"os"
 	"sort"
 	"strings"
 )
+
+const tokyuCookieFile = "tokyu_session.json"
 
 type ExpiryInfo struct {
 	Points int    `json:"points"`
@@ -27,11 +30,11 @@ type PointReport struct {
 }
 
 type PointService struct {
-	tokyuClient      *external.TokyuClient
-	metpoClient      *external.MetpoClient
-	toeiClient       *external.ToeiMetroClient
-	sotetsuClient    *external.SotetsuClient
-	keikyuClient     *external.KeikyuClient
+	tokyu   *external.TokyuClient
+	metpo   *external.MetpoClient
+	toei    *external.ToeiMetroClient
+	sotetsu *external.SotetsuClient
+	keikyu  *external.KeikyuClient
 }
 
 func NewPointService() (*PointService, error) {
@@ -42,228 +45,206 @@ func NewPointService() (*PointService, error) {
 	keikyu, _ := external.NewKeikyuClient()
 
 	return &PointService{
-		tokyuClient:   tokyu,
-		metpoClient:   metpo,
-		toeiClient:    toei,
-		sotetsuClient: sotetsu,
-		keikyuClient:  keikyu,
+		tokyu:   tokyu,
+		metpo:   metpo,
+		toei:    toei,
+		sotetsu: sotetsu,
+		keikyu:  keikyu,
 	}, nil
 }
 
 func (s *PointService) FetchAll() (*PointReport, error) {
-	report := &PointReport{
-		Details: []UnifiedPoint{},
-	}
+	report := &PointReport{Details: []UnifiedPoint{}}
 
-	// Tokyu
-	if os.Getenv("TOKYU_SESSION_TOKEN") != "" {
-		s.fetchTokyu(report)
-	}
+	// Each provider fetch logic
+	s.fetchTokyu(report)
+	s.fetchMetpo(report)
+	s.fetchToei(report)
+	s.fetchSotetsu(report)
+	s.fetchKeikyu(report)
 
-	// Metpo
-	if os.Getenv("TOKYO_METRO_EMAIL") != "" {
-		s.fetchMetpo(report)
-	}
-
-	// Toei
-	if os.Getenv("TOEI_USER_ID") != "" {
-		s.fetchToei(report)
-	}
-
-	// Sotetsu
-	if os.Getenv("SOTETSU_EMAIL") != "" {
-		s.fetchSotetsu(report)
-	}
-
-	// Keikyu
-	if os.Getenv("KEIKYU_LOGIN_ID") != "" {
-		s.fetchKeikyu(report)
-	}
-
-	// Calculate total
 	for _, d := range report.Details {
 		report.TotalBalance += d.Balance
 	}
-
 	return report, nil
 }
 
 func (s *PointService) fetchTokyu(report *PointReport) {
-	cookies := map[string]string{
-		"__Host-plus.sessionToken": os.Getenv("TOKYU_SESSION_TOKEN"),
-		"nToken":                   os.Getenv("TOKYU_SESSION_TOKEN"),
-		"s.sessionToken":           os.Getenv("TOKYU_SESSION_TOKEN"),
-		"onToken":                  os.Getenv("TOKYU_SESSION_TOKEN"),
-		"_clck":                    os.Getenv("TOKYU_CLCK"),
-		"_clsk":                    os.Getenv("TOKYU_CLSK"),
-		"_ga":                      os.Getenv("TOKYU_GA"),
-		"_ga_B0V3646TYC":           os.Getenv("TOKYU_GA_B0"),
-		"_ga_XD2N3Y0135":           os.Getenv("TOKYU_GA_XD"),
-		"_ga_Y86R0E9JVH":           os.Getenv("TOKYU_GA_Y8"),
-		"_gcl_au":                  os.Getenv("TOKYU_GCL_AU"),
-		"_rslgvry":                 os.Getenv("TOKYU_RSLGVRY"),
-		"_yjsu_yjad":               os.Getenv("TOKYU_YJSU"),
-		"krt_rewrite_uid":          os.Getenv("TOKYU_KRT"),
-		"withdesk-id":              os.Getenv("TOKYU_WITHDESK"),
-	}
-	s.tokyuClient.SetCookies(cookies)
+	token := os.Getenv("TOKYU_SESSION_TOKEN")
 
-	data, err := s.tokyuClient.FetchAll()
+	// Load existing cookies from file
+	cookies := s.loadTokyuCookies()
+
+	// Update session tokens if provided in environment
+	if token != "" {
+		cookies["__Host-plus.sessionToken"] = token
+		cookies["nToken"] = token
+		cookies["s.sessionToken"] = token
+		cookies["onToken"] = token
+	}
+
+	if len(cookies) == 0 {
+		return // No way to authenticate
+	}
+
+	s.tokyu.SetCookies(cookies)
+
+	data, err := s.tokyu.FetchAll()
 	if err != nil {
 		fmt.Printf("Tokyu fetch error: %v\n", err)
 		return
 	}
 
-	up := UnifiedPoint{
-		Provider: "Tokyu",
-		Balance:  data.Point,
-	}
-
+	up := UnifiedPoint{Provider: "Tokyu", Balance: data.Point}
 	for _, exp := range data.Expiries {
-		if exp.Balance > 0 {
-			up.ExpiryList = append(up.ExpiryList, ExpiryInfo{
-				Points: exp.Balance,
-				Date:   exp.Date,
-			})
-		}
+		s.addExpiry(&up, exp.Balance, exp.Date)
 	}
-	// Sort by date and pick nearest
-	if len(up.ExpiryList) > 0 {
-		sort.Slice(up.ExpiryList, func(i, j int) bool {
-			return up.ExpiryList[i].Date < up.ExpiryList[j].Date
-		})
-		up.ExpiryDate = up.ExpiryList[0].Date
-	}
-
+	s.finalizePoint(&up)
 	report.Details = append(report.Details, up)
 
-	// Update cookies if changed
-	updated := s.tokyuClient.GetCookies()
-	newToken := updated["__Host-plus.sessionToken"]
-	if newToken == "" {
-		newToken = updated["nToken"]
-	}
-	if newToken != "" && newToken != os.Getenv("TOKYU_SESSION_TOKEN") {
-		if report.UpdatedCookies == nil {
-			report.UpdatedCookies = make(map[string]string)
-		}
-		report.UpdatedCookies["TOKYU_SESSION_TOKEN"] = newToken
-		if clck := updated["_clck"]; clck != "" {
-			report.UpdatedCookies["TOKYU_CLCK"] = clck
-		}
-		if clsk := updated["_clsk"]; clsk != "" {
-			report.UpdatedCookies["TOKYU_CLSK"] = clsk
-		}
-	}
+	// Save all current cookies back to file
+	updated := s.tokyu.GetCookies()
+	s.saveTokyuCookies(updated)
+
+	// Still check for session token change for .env sync if desired
+	s.syncTokyuCookies(report, updated)
 }
 
 func (s *PointService) fetchMetpo(report *PointReport) {
-	err := s.metpoClient.Login(os.Getenv("TOKYO_METRO_EMAIL"), os.Getenv("TOKYO_METRO_PASSWORD"))
-	if err != nil {
+	user, pass := os.Getenv("TOKYO_METRO_EMAIL"), os.Getenv("TOKYO_METRO_PASSWORD")
+	if user == "" || pass == "" {
+		return
+	}
+
+	if err := s.metpo.Login(user, pass); err != nil {
 		fmt.Printf("Metpo login error: %v\n", err)
 		return
 	}
 
-	data, err := s.metpoClient.FetchAll()
+	data, err := s.metpo.FetchAll()
 	if err != nil {
 		fmt.Printf("Metpo fetch error: %v\n", err)
 		return
 	}
 
-	up := UnifiedPoint{
-		Provider: "Tokyo Metro (Metpo)",
-		Balance:  data.Point.HoldingPoint,
-	}
-
-	if data.Point.NormalExpiryPoint > 0 {
-		up.ExpiryList = append(up.ExpiryList, ExpiryInfo{
-			Points: data.Point.NormalExpiryPoint,
-			Date:   data.Point.NormalExpiry,
-		})
-	}
-	if data.Point.ChargeExpiryPoint > 0 {
-		up.ExpiryList = append(up.ExpiryList, ExpiryInfo{
-			Points: data.Point.ChargeExpiryPoint,
-			Date:   data.Point.ChargeExpiry,
-		})
-	}
-	
-	if len(up.ExpiryList) > 0 {
-		sort.Slice(up.ExpiryList, func(i, j int) bool {
-			return up.ExpiryList[i].Date < up.ExpiryList[j].Date
-		})
-		up.ExpiryDate = up.ExpiryList[0].Date
-	}
-
+	up := UnifiedPoint{Provider: "Tokyo Metro (Metpo)", Balance: data.Point.HoldingPoint}
+	s.addExpiry(&up, data.Point.NormalExpiryPoint, data.Point.NormalExpiry)
+	s.addExpiry(&up, data.Point.ChargeExpiryPoint, data.Point.ChargeExpiry)
+	s.finalizePoint(&up)
 	report.Details = append(report.Details, up)
 }
 
 func (s *PointService) fetchToei(report *PointReport) {
-	err := s.toeiClient.Login(os.Getenv("TOEI_USER_ID"), os.Getenv("TOEI_METRO_PASSWORD"))
-	if err != nil {
+	user, pass := os.Getenv("TOEI_USER_ID"), os.Getenv("TOEI_METRO_PASSWORD")
+	if user == "" || pass == "" {
+		return
+	}
+
+	if err := s.toei.Login(user, pass); err != nil {
 		fmt.Printf("Toei login error: %v\n", err)
 		return
 	}
 
-	data, err := s.toeiClient.FetchAll()
+	data, err := s.toei.FetchAll()
 	if err != nil {
 		fmt.Printf("Toei fetch error: %v\n", err)
 		return
 	}
 
-	report.Details = append(report.Details, UnifiedPoint{
-		Provider: "Toei Metro (Tokopo)",
-		Balance:  data.Point,
-	})
+	report.Details = append(report.Details, UnifiedPoint{Provider: "Toei Metro (Tokopo)", Balance: data.Point})
 }
 
 func (s *PointService) fetchSotetsu(report *PointReport) {
-	err := s.sotetsuClient.Login(os.Getenv("SOTETSU_EMAIL"), os.Getenv("SOTETSU_PASSWORD"))
-	if err != nil {
+	user, pass := os.Getenv("SOTETSU_EMAIL"), os.Getenv("SOTETSU_PASSWORD")
+	if user == "" || pass == "" {
+		return
+	}
+
+	if err := s.sotetsu.Login(user, pass); err != nil {
 		fmt.Printf("Sotetsu login error: %v\n", err)
 		return
 	}
 
-	data, err := s.sotetsuClient.FetchAll()
+	data, err := s.sotetsu.FetchAll()
 	if err != nil {
 		fmt.Printf("Sotetsu fetch error: %v\n", err)
 		return
 	}
 
-	up := UnifiedPoint{
-		Provider:   "Sotetsu",
-		Balance:    data.Point,
-		ExpiryDate: data.PointExpiry,
-	}
-	report.Details = append(report.Details, up)
-	
-	// If Mile exists, add it as well?
+	report.Details = append(report.Details, UnifiedPoint{
+		Provider: "Sotetsu", Balance: data.Point, ExpiryDate: data.PointExpiry,
+	})
 	if data.Mile > 0 {
 		report.Details = append(report.Details, UnifiedPoint{
-			Provider:   "Sotetsu (Mile)",
-			Balance:    data.Mile,
-			ExpiryDate: data.MileExpiry,
+			Provider: "Sotetsu (Mile)", Balance: data.Mile, ExpiryDate: data.MileExpiry,
 		})
 	}
 }
 
 func (s *PointService) fetchKeikyu(report *PointReport) {
-	err := s.keikyuClient.Login(os.Getenv("KEIKYU_LOGIN_ID"), os.Getenv("KEIKYU_PASSWORD"))
-	if err != nil {
+	user, pass := os.Getenv("KEIKYU_LOGIN_ID"), os.Getenv("KEIKYU_PASSWORD")
+	if user == "" || pass == "" {
+		return
+	}
+
+	if err := s.keikyu.Login(user, pass); err != nil {
 		fmt.Printf("Keikyu login error: %v\n", err)
 		return
 	}
 
-	data, err := s.keikyuClient.FetchAll()
+	data, err := s.keikyu.FetchAll()
 	if err != nil {
 		fmt.Printf("Keikyu fetch error: %v\n", err)
 		return
 	}
 
 	report.Details = append(report.Details, UnifiedPoint{
-		Provider: "Keikyu",
-		Balance:  data.AvailablePoint + data.LimitedPoint,
-		// Keikyu expiry info is textual (RevocationInfo)
+		Provider: "Keikyu", Balance: data.AvailablePoint + data.LimitedPoint,
 		ExpiryDate: strings.TrimSpace(data.RevocationInfo),
 	})
+}
+
+// Helpers
+func (s *PointService) addExpiry(up *UnifiedPoint, balance int, date string) {
+	if balance > 0 && date != "" {
+		up.ExpiryList = append(up.ExpiryList, ExpiryInfo{Points: balance, Date: date})
+	}
+}
+
+func (s *PointService) finalizePoint(up *UnifiedPoint) {
+	if len(up.ExpiryList) == 0 {
+		return
+	}
+	sort.Slice(up.ExpiryList, func(i, j int) bool {
+		return up.ExpiryList[i].Date < up.ExpiryList[j].Date
+	})
+	up.ExpiryDate = up.ExpiryList[0].Date
+}
+
+func (s *PointService) syncTokyuCookies(report *PointReport, updated map[string]string) {
+	newToken := updated["__Host-plus.sessionToken"]
+	if newToken == "" {
+		newToken = updated["nToken"]
+	}
+
+	if newToken != "" && newToken != os.Getenv("TOKYU_SESSION_TOKEN") {
+		if report.UpdatedCookies == nil {
+			report.UpdatedCookies = make(map[string]string)
+		}
+		report.UpdatedCookies["TOKYU_SESSION_TOKEN"] = newToken
+	}
+}
+
+func (s *PointService) loadTokyuCookies() map[string]string {
+	cookies := make(map[string]string)
+	data, err := os.ReadFile(tokyuCookieFile)
+	if err == nil {
+		json.Unmarshal(data, &cookies)
+	}
+	return cookies
+}
+
+func (s *PointService) saveTokyuCookies(cookies map[string]string) {
+	data, _ := json.MarshalIndent(cookies, "", "  ")
+	os.WriteFile(tokyuCookieFile, data, 0644)
 }

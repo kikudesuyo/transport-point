@@ -20,10 +20,8 @@ const (
 
 type SotetsuClient struct{ client *http.Client }
 type SotetsuData struct {
-	Name        string
 	Point       int
 	Mile        int
-	Rank        string
 	PointExpiry string
 	MileExpiry  string
 }
@@ -75,9 +73,6 @@ func (s *SotetsuClient) FetchAll() (*SotetsuData, error) {
 	doc, _ := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
 	data := &SotetsuData{}
 
-	// 名前
-	data.Name = strings.TrimSpace(strings.TrimSuffix(doc.Find("h1.parts-title03").Text(), " 様"))
-
 	// 各ステータス（ポイント、マイル、ランク）の抽出
 	doc.Find(".mypage-status__whbord").Each(func(i int, s *goquery.Selection) {
 		title := strings.TrimSpace(s.Find("h2").First().Text())
@@ -94,7 +89,7 @@ func (s *SotetsuClient) FetchAll() (*SotetsuData, error) {
 			data.Mile = v
 			data.MileExpiry = expiry
 		case strings.Contains(title, "ランク"):
-			data.Rank = valText
+			// Ignore rank for summary
 		}
 	})
 

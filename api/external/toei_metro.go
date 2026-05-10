@@ -13,7 +13,6 @@ import (
 )
 
 type ToeiMetroData struct {
-	Name  string
 	Point int
 }
 
@@ -52,9 +51,7 @@ func (t *ToeiMetroClient) FetchAll() (*ToeiMetroData, error) {
 	utf8Body, _ := charset.NewReader(resp.Body, "shift_jis")
 	doc, _ := goquery.NewDocumentFromReader(utf8Body)
 
-	data := &ToeiMetroData{
-		Name: strings.TrimSuffix(strings.TrimSpace(doc.Find("h2.cursor").Text()), "さん"),
-	}
+	data := &ToeiMetroData{}
 	// ポイント抽出
 	pText := doc.Find("div.boxPoint li.green").Text()
 	pStr := strings.NewReplacer("ポイント", "", ",", "").Replace(pText)

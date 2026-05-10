@@ -26,7 +26,6 @@ type ExpiryItem struct {
 }
 
 type TokyuData struct {
-	Name        string
 	Point       int
 	PointExpiry string
 	Expiries    []ExpiryItem
@@ -233,14 +232,4 @@ func (t *TokyuClient) extractJSON(html string) (*TokyuRSCPayload, error) {
 	}
 
 	return nil, fmt.Errorf("pointBalances found in script tags but could not be parsed")
-}
-
-func (t *TokyuClient) fetchPoints(data *TokyuData) error {
-	// Deprecated: FetchAll now handles this via JSON extraction
-	return nil
-}
-
-func (t *TokyuClient) fetchExpiry(data *TokyuData) error {
-	// Deprecated: FetchAll now handles this via JSON extraction
-	return nil
 }

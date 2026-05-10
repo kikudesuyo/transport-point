@@ -23,8 +23,6 @@ type KeikyuClient struct {
 }
 
 type KeikyuData struct {
-	Name           string
-	MemberNo       string
 	AvailablePoint int
 	LimitedPoint   int
 	RevocationInfo string
@@ -112,11 +110,6 @@ func (k *KeikyuClient) FetchAll() (*KeikyuData, error) {
 	}
 
 	data := &KeikyuData{}
-	// 名前
-	data.Name = strings.TrimSpace(doc.Find(".c-information-head-name span").Text())
-	// 会員No
-	memberNoRaw := doc.Find(".c-information-head-number").Text()
-	data.MemberNo = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(memberNoRaw), "会員No :"))
 	// 利用可能ポイント
 	availablePointStr := doc.Find(".c-information-body-detail-available strong").Text()
 	data.AvailablePoint, _ = strconv.Atoi(strings.ReplaceAll(availablePointStr, ",", ""))
