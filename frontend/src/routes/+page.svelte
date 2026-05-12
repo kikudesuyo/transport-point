@@ -1,18 +1,26 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Hero from '$lib/components/Hero.svelte';
 	import ProviderCard from '$lib/components/ProviderCard.svelte';
 	import ErrorAlert from '$lib/components/ErrorAlert.svelte';
-
-	type ExpiryInfo = { points: number; date: string };
-	type SubPoint = { name: string; balance: number };
-	type UnifiedPoint = { provider: string; balance: number; expiry_date: string; expiry_list: ExpiryInfo[], hasError?: boolean, sub_points?: SubPoint[] };
+	import { loadCache, saveCache, type UnifiedPoint } from '$lib/cache';
 
 	let details: UnifiedPoint[] = $state([]);
 	let totalBalance: number = $state(0);
 	let isLoading = $state(false);
 	let errors: string[] = $state([]);
+	let lastUpdated: number | null = $state(null);
 
-	const providers = ['tokyu', 'metpo', 'toei', 'sotetsu', 'keikyu'];
+	const providers = ['tokyu', 'metpo', 'toei', 'sotetsu', 'keikyu', 'odakyu', 'tobu'];
+
+	onMount(() => {
+		const cached = loadCache();
+		if (cached) {
+			details = cached.data;
+			totalBalance = cached.total;
+			lastUpdated = cached.timestamp;
+		}
+	});
 
 	async function fetchPoints() {
 		isLoading = true;
@@ -34,13 +42,14 @@
 				}
 			} catch (e: any) {
 				errors = [...errors, e.message || `${provider} で不明なエラーが発生しました`];
-				// エラー発生時はエラーフラグ付きのダミーオブジェクトをカードとして表示するために追加
 				const providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
 				details = [...details, { provider: providerName, balance: 0, expiry_date: '--', expiry_list: [], hasError: true }];
 			}
 		});
 
 		await Promise.allSettled(fetchPromises);
+		
+		lastUpdated = saveCache(details, totalBalance);
 		isLoading = false;
 	}
 </script>
@@ -51,7 +60,7 @@
 
 <main class="min-h-screen bg-gray-50 text-gray-900 font-sans">
 	<div class="max-w-5xl mx-auto px-6 py-16">
-		<Hero onSync={fetchPoints} {isLoading} />
+		<Hero onSync={fetchPoints} {isLoading} {lastUpdated} />
 		<ErrorAlert {errors} />
 
 		{#if details.length > 0 || isLoading}

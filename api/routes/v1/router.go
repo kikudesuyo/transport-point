@@ -13,6 +13,8 @@ func RegisterRoutes(r chi.Router, ps *service.PointService) {
 	toeiHandler := handler.NewToeiHandler(ps)
 	sotetsuHandler := handler.NewSotetsuHandler(ps)
 	keikyuHandler := handler.NewKeikyuHandler(ps)
+	odakyuHandler := handler.NewOdakyuHandler(ps)
+	tobuHandler := handler.NewTobuHandler(ps)
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Get("/tokyu", tokyuHandler.GetPoints)
@@ -20,5 +22,7 @@ func RegisterRoutes(r chi.Router, ps *service.PointService) {
 		r.Get("/toei", toeiHandler.GetPoints)
 		r.Get("/sotetsu", sotetsuHandler.GetPoints)
 		r.Get("/keikyu", keikyuHandler.GetPoints)
+		r.Get("/odakyu", odakyuHandler.GetPoints)
+		r.Get("/tobu", tobuHandler.GetPoints)
 	})
 }

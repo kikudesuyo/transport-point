@@ -1,14 +1,5 @@
 <script lang="ts">
-	type ExpiryInfo = { points: number; date: string };
-	type SubPoint = { name: string; balance: number };
-	type UnifiedPoint = {
-		provider: string;
-		balance: number;
-		expiry_date: string;
-		expiry_list: ExpiryInfo[];
-		hasError?: boolean;
-		sub_points?: SubPoint[];
-	};
+	import type { UnifiedPoint } from '$lib/cache';
 
 	let { detail } = $props<{ detail: UnifiedPoint }>();
 </script>

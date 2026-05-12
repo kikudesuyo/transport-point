@@ -33,6 +33,8 @@ type PointService struct {
 	toei    *external.ToeiMetroClient
 	sotetsu *external.SotetsuClient
 	keikyu  *external.KeikyuClient
+	odakyu  *external.OdakyuClient
+	tobu    *external.TobuClient
 }
 
 func NewPointService() (*PointService, error) {
@@ -41,6 +43,8 @@ func NewPointService() (*PointService, error) {
 	toei, _ := external.NewToeiMetroClient()
 	sotetsu, _ := external.NewSotetsuClient()
 	keikyu, _ := external.NewKeikyuClient()
+	odakyu, _ := external.NewOdakyuClient()
+	tobu, _ := external.NewTobuClient()
 
 	return &PointService{
 		tokyu:   tokyu,
@@ -48,6 +52,8 @@ func NewPointService() (*PointService, error) {
 		toei:    toei,
 		sotetsu: sotetsu,
 		keikyu:  keikyu,
+		odakyu:  odakyu,
+		tobu:    tobu,
 	}, nil
 }
 
@@ -161,6 +167,59 @@ func (s *PointService) FetchKeikyu() ([]UnifiedPoint, error) {
 		subPoints = append(subPoints, SubPoint{Name: "期間限定ポイント", Balance: data.LimitedPoint})
 	}
 	up.SubPoints = subPoints
+
+	return []UnifiedPoint{up}, nil
+}
+
+func (s *PointService) FetchOdakyu() ([]UnifiedPoint, error) {
+	data, err := s.odakyu.FetchAll()
+	if err != nil {
+		return nil, fmt.Errorf("odakyu fetch error: %w", err)
+	}
+
+	up := UnifiedPoint{
+		Provider:   "Odakyu",
+		Balance:    data.ThisYearBalance + data.LastYearBalance,
+		ExpiryDate: data.PointInvalidDate,
+	}
+
+	var subPoints []SubPoint
+	if data.ThisYearBalance > 0 {
+		subPoints = append(subPoints, SubPoint{Name: "今年度ポイント", Balance: data.ThisYearBalance})
+	}
+	if data.LastYearBalance > 0 {
+		subPoints = append(subPoints, SubPoint{Name: "前年度ポイント", Balance: data.LastYearBalance})
+	}
+	up.SubPoints = subPoints
+
+	return []UnifiedPoint{up}, nil
+}
+
+func (s *PointService) FetchTobu() ([]UnifiedPoint, error) {
+	data, err := s.tobu.FetchAll()
+	if err != nil {
+		return nil, fmt.Errorf("tobu fetch error: %w", err)
+	}
+
+	up := UnifiedPoint{
+		Provider: "Tobu",
+		Balance:  data.TotalPoint + data.Miles,
+	}
+
+	var subPoints []SubPoint
+	if data.NormalPoint > 0 {
+		subPoints = append(subPoints, SubPoint{Name: "通常ポイント", Balance: data.NormalPoint})
+		s.addExpiry(&up, data.NormalPoint, data.NormalExpiry)
+	}
+	if data.LimitedPoint > 0 {
+		subPoints = append(subPoints, SubPoint{Name: "期間限定ポイント", Balance: data.LimitedPoint})
+		s.addExpiry(&up, data.LimitedPoint, data.LimitedExpiry)
+	}
+	if data.Miles > 0 {
+		subPoints = append(subPoints, SubPoint{Name: "トブポマイル", Balance: data.Miles})
+	}
+	up.SubPoints = subPoints
+	s.finalizePoint(&up)
 
 	return []UnifiedPoint{up}, nil
 }
