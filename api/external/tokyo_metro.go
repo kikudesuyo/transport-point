@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html/charset"
@@ -52,6 +53,13 @@ type MetpoScoreInfo struct {
 func NewMetpoClient() (*MetpoClient, error) {
 	jar, _ := cookiejar.New(nil)
 	return &MetpoClient{client: &http.Client{Jar: jar}}, nil
+}
+
+// IsMaintenance は現在がメトポのメンテナンス時間内（JST 0:00-4:00）かどうかを返す
+func (m *MetpoClient) IsMaintenance() bool {
+	jst := time.FixedZone("Asia/Tokyo", 9*60*60)
+	now := time.Now().In(jst)
+	return now.Hour() >= 0 && now.Hour() < 4
 }
 
 // Login はメトポにログインしてセッションCookieを取得する

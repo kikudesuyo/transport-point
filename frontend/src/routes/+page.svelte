@@ -24,6 +24,7 @@
 	async function fetchPoints() {
 		isLoading = true;
 		errors = [];
+		const prevDetails = [...details];
 		details = [];
 		totalBalance = 0;
 
@@ -41,13 +42,31 @@
 			try {
 				const data = await call();
 				if (data && data.length > 0) {
-					details = [...details, ...data];
-					totalBalance += data.reduce((acc, curr) => acc + curr.balance, 0);
+					const processedData = data.map((item) => {
+						if (item.is_maintenance) {
+							const cached = prevDetails.find((d) => d.provider === item.provider);
+							if (cached) {
+								return {
+									...item,
+									balance: cached.balance,
+									expiry_date: cached.expiry_date,
+									expiry_list: cached.expiry_list,
+									sub_points: cached.sub_points
+								};
+							}
+						}
+						return item;
+					});
+					details = [...details, ...processedData];
+					totalBalance += processedData.reduce((acc, curr) => acc + curr.balance, 0);
 				}
 			} catch (e: any) {
 				errors = [...errors, e.message || `${name} で不明なエラーが発生しました`];
 				const providerName = name.charAt(0).toUpperCase() + name.slice(1);
-				details = [...details, { provider: providerName, balance: 0, expiry_date: '--', expiry_list: [], hasError: true }];
+				details = [
+					...details,
+					{ provider: providerName, balance: 0, expiry_date: '--', expiry_list: [], hasError: true }
+				];
 			}
 		});
 

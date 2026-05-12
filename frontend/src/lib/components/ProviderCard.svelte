@@ -10,7 +10,13 @@
 	<div>
 		<h3 class="mb-4 text-lg font-semibold text-gray-700">{detail.provider}</h3>
 
-		{#if detail.hasError}
+		{#if detail.is_maintenance}
+			<div
+				class="mt-4 mb-2 rounded border border-orange-100 bg-orange-50 px-3 py-2 text-sm font-bold text-orange-500"
+			>
+				只今メンテナンス中です
+			</div>
+		{:else if detail.hasError}
 			<div
 				class="mt-4 mb-2 rounded border border-red-100 bg-red-50 px-3 py-2 text-sm font-bold text-red-500"
 			>

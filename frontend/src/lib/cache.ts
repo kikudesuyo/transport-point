@@ -6,6 +6,7 @@ export type UnifiedPoint = {
     expiry_date: string; 
     expiry_list: ExpiryInfo[]; 
     hasError?: boolean; 
+    is_maintenance?: boolean;
     sub_points?: SubPoint[] 
 };
 

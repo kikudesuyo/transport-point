@@ -20,11 +20,12 @@ type SubPoint struct {
 }
 
 type UnifiedPoint struct {
-	Provider   string       `json:"provider"`
-	Balance    int          `json:"balance"`
-	ExpiryDate string       `json:"expiry_date"` // Nearest expiry date
-	ExpiryList []ExpiryInfo `json:"expiry_list,omitempty"`
-	SubPoints  []SubPoint   `json:"sub_points,omitempty"`
+	Provider      string       `json:"provider"`
+	Balance       int          `json:"balance"`
+	ExpiryDate    string       `json:"expiry_date"` // Nearest expiry date
+	ExpiryList    []ExpiryInfo `json:"expiry_list,omitempty"`
+	SubPoints     []SubPoint   `json:"sub_points,omitempty"`
+	IsMaintenance bool         `json:"is_maintenance"`
 }
 
 type PointService struct {
@@ -75,6 +76,14 @@ func (s *PointService) FetchMetpo() ([]UnifiedPoint, error) {
 	user, pass := os.Getenv("TOKYO_METRO_EMAIL"), os.Getenv("TOKYO_METRO_PASSWORD")
 	if user == "" || pass == "" {
 		return nil, fmt.Errorf("credentials not found")
+	}
+
+	// メンテナンス時間判定
+	if s.metpo.IsMaintenance() {
+		return []UnifiedPoint{{
+			Provider:      "Tokyo Metro (Metpo)",
+			IsMaintenance: true,
+		}}, nil
 	}
 
 	if err := s.metpo.Login(user, pass); err != nil {
@@ -130,10 +139,10 @@ func (s *PointService) FetchSotetsu() ([]UnifiedPoint, error) {
 		Provider: "Sotetsu",
 		Balance:  data.Point + data.Mile,
 	}
-	
+
 	s.addExpiry(&up, data.Point, data.PointExpiry)
 	s.addExpiry(&up, data.Mile, data.MileExpiry)
-	
+
 	var subPoints []SubPoint
 	if data.Point > 0 {
 		subPoints = append(subPoints, SubPoint{Name: "相鉄ポイント", Balance: data.Point})
@@ -142,7 +151,7 @@ func (s *PointService) FetchSotetsu() ([]UnifiedPoint, error) {
 		subPoints = append(subPoints, SubPoint{Name: "相鉄マイル", Balance: data.Mile})
 	}
 	up.SubPoints = subPoints
-	
+
 	s.finalizePoint(&up)
 	return []UnifiedPoint{up}, nil
 }
