@@ -4,14 +4,13 @@
 	import ProviderCard from '$lib/components/ProviderCard.svelte';
 	import ErrorAlert from '$lib/components/ErrorAlert.svelte';
 	import { loadCache, saveCache, type UnifiedPoint } from '$lib/cache';
+	import * as api from '$lib/api';
 
 	let details: UnifiedPoint[] = $state([]);
 	let totalBalance: number = $state(0);
 	let isLoading = $state(false);
 	let errors: string[] = $state([]);
 	let lastUpdated: number | null = $state(null);
-
-	const providers = ['tokyu', 'metpo', 'toei', 'sotetsu', 'keikyu', 'odakyu', 'tobu'];
 
 	onMount(() => {
 		const cached = loadCache();
@@ -28,21 +27,26 @@
 		details = [];
 		totalBalance = 0;
 
-		const fetchPromises = providers.map(async (provider) => {
+		const handlers = [
+			{ name: 'tokyu', call: api.fetchTokyu },
+			{ name: 'metpo', call: api.fetchMetpo },
+			{ name: 'toei', call: api.fetchToei },
+			{ name: 'sotetsu', call: api.fetchSotetsu },
+			{ name: 'keikyu', call: api.fetchKeikyu },
+			{ name: 'odakyu', call: api.fetchOdakyu },
+			{ name: 'tobu', call: api.fetchTobu }
+		];
+
+		const fetchPromises = handlers.map(async ({ name, call }) => {
 			try {
-				const res = await fetch(`/api/v1/${provider}`);
-				if (!res.ok) {
-					throw new Error(`${provider} の取得に失敗しました`);
-				}
-				const data: UnifiedPoint[] = await res.json();
-				
+				const data = await call();
 				if (data && data.length > 0) {
 					details = [...details, ...data];
 					totalBalance += data.reduce((acc, curr) => acc + curr.balance, 0);
 				}
 			} catch (e: any) {
-				errors = [...errors, e.message || `${provider} で不明なエラーが発生しました`];
-				const providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
+				errors = [...errors, e.message || `${name} で不明なエラーが発生しました`];
+				const providerName = name.charAt(0).toUpperCase() + name.slice(1);
 				details = [...details, { provider: providerName, balance: 0, expiry_date: '--', expiry_list: [], hasError: true }];
 			}
 		});
