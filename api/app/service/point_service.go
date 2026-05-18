@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kikudesuyo/point-hub/external"
+	"github.com/kikudesuyo/point-hub/app/external"
 )
 
 type ExpiryInfo struct {
